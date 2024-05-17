@@ -8,6 +8,7 @@
 #define SERVER_PORT 69
 #define BUFFER_SIZE 516
 #define DATA_SIZE 512
+#define BASE_DIR "/home/cristianxra/redes-tps/tp4-p10k/ficherosTFTPcliente/" // Cambia esto al directorio deseado
 
 enum
 {
@@ -36,7 +37,10 @@ void send_rrq(int sockfd, struct sockaddr_in *server_addr, const char *filename)
     sendto(sockfd, buffer, 2 + strlen(filename) + 1 + strlen("octet") + 1, 0, (struct sockaddr *)server_addr, sizeof(*server_addr));
     printf("Enviando solicitud de lectura para el archivo: %s\n", filename);
 
-    FILE *file = fopen(filename, "wb");
+    char filepath[BUFFER_SIZE];
+    snprintf(filepath, BUFFER_SIZE, "%s%s", BASE_DIR, filename);
+
+    FILE *file = fopen(filepath, "wb");
     if (!file)
     {
         error_exit("fopen");
@@ -99,7 +103,11 @@ void send_wrq(int sockfd, struct sockaddr_in *server_addr, const char *filename)
     sendto(sockfd, buffer, 2 + strlen(filename) + 1 + strlen("octet") + 1, 0, (struct sockaddr *)server_addr, sizeof(*server_addr));
     printf("Enviando solicitud de escritura para el archivo: %s\n", filename);
 
-    FILE *file = fopen(filename, "rb");
+    char filepath[256];
+    snprintf(filepath, sizeof(filepath), "%s%s", BASE_DIR, filename);
+    printf("ruta completa: %s\n", filepath);
+
+    FILE *file = fopen(filepath, "rb");
     if (!file)
     {
         error_exit("fopen");

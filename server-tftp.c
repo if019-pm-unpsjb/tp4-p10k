@@ -9,6 +9,7 @@
 #define PORT 69
 #define BUFFER_SIZE 516
 #define DATA_SIZE 512
+#define BASE_DIR "/home/cristianxra/redes-tps/tp4-p10k/ficherosTFTPserver/" // Cambia esto al directorio deseado
 
 enum
 {
@@ -40,7 +41,10 @@ void send_error(int sockfd, struct sockaddr_in *client_addr, socklen_t client_le
 
 void handle_rrq(int sockfd, struct sockaddr_in *client_addr, socklen_t client_len, const char *filename)
 {
-    int file = open(filename, O_RDONLY);
+    char filepath[BUFFER_SIZE];
+    snprintf(filepath, BUFFER_SIZE, "%s%s", BASE_DIR, filename);
+
+    int file = open(filepath, O_RDONLY);
     if (file < 0)
     {
         if (errno == ENOENT)
@@ -93,7 +97,10 @@ void handle_rrq(int sockfd, struct sockaddr_in *client_addr, socklen_t client_le
 
 void handle_wrq(int sockfd, struct sockaddr_in *client_addr, socklen_t client_len, const char *filename)
 {
-    int file = open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+    char filepath[256];
+    snprintf(filepath, sizeof(filepath), "%s%s", BASE_DIR, filename);
+    printf("ruta completa: %s\n", filepath);
+    int file = open(filepath, O_WRONLY | O_CREAT | O_TRUNC, 0666);
     if (file < 0)
     {
         if (errno == EEXIST)
