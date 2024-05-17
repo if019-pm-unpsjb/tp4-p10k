@@ -1,0 +1,22 @@
+
+
+direccion(persona,calle)
+direccion(laura,salta 49).
+dirreccion(lujan,salta 49).
+
+viven_en_la_misma_casa(X,Y):- direccion(X,Z),direccion(Y,Z)
+
+deporte(fabri,basquet)
+despote(asd,tenis)
+
+
+es_desportista(x):-desporte(x,basquet);desportista(x,fultbol).  o
+
+es_desportista(x):-desporte(x,basquet).
+es_desportista(x):-desportista(x,fultbol).
+
+
+
+ 
+
+
