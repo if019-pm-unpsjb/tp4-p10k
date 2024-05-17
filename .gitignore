@@ -64,5 +64,5 @@ dkms.conf
 *.zip
 
 # Binarios de los ejercicios
-#bin/*
-#!bin/.keep
+bin/*
+!bin/.keep

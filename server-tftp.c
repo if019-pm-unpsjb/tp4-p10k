@@ -9,7 +9,7 @@
 #define PORT 69
 #define BUFFER_SIZE 516
 #define DATA_SIZE 512
-#define BASE_DIR "/home/cristianxra/redes-tps/tp4-p10k/ficherosTFTPserver/" // Cambia esto al directorio deseado
+#define BASE_DIR "./ficherosTFTPserver/" // Cambia esto al directorio deseado
 
 enum
 {
