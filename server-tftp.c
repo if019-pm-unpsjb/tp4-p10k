@@ -41,8 +41,9 @@ void send_error(int sockfd, struct sockaddr_in *client_addr, socklen_t client_le
 
 void handle_rrq(int sockfd, struct sockaddr_in *client_addr, socklen_t client_len, const char *filename)
 {
-    char filepath[BUFFER_SIZE];
-    snprintf(filepath, BUFFER_SIZE, "%s%s", BASE_DIR, filename);
+    char filepath[256];
+    snprintf(filepath, sizeof(filepath), "%s%s", BASE_DIR, filename);
+    printf("ruta completa: %s\n", filepath);
 
     int file = open(filepath, O_RDONLY);
     if (file < 0)
