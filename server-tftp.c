@@ -43,7 +43,7 @@ void handle_rrq(int sockfd, struct sockaddr_in *client_addr, socklen_t client_le
 {
     char filepath[256];
     snprintf(filepath, sizeof(filepath), "%s%s", BASE_DIR, filename);
-    printf("ruta completa: %s\n", filepath);
+    // printf("ruta completa: %s\n", filepath);
 
     int file = open(filepath, O_RDONLY);
     if (file < 0)
@@ -121,7 +121,6 @@ void handle_wrq(int sockfd, struct sockaddr_in *client_addr, socklen_t client_le
 
     char buffer[BUFFER_SIZE];
     int block = 0;
-
     while (1)
     {
         // Enviar ACK

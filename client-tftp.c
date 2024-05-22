@@ -29,57 +29,6 @@ void error_exit(const char *msg)
     exit(EXIT_FAILURE);
 }
 
-int wait_for_ack(int sockfd, struct sockaddr_in *server_addr, socklen_t *server_len, int block)
-{
-    char buffer[BUFFER_SIZE];
-    fd_set read_fds;
-    struct timeval timeout;
-    int retries = 0;
-
-    while (retries < MAX_RETRIES)
-    {
-        FD_ZERO(&read_fds);
-        FD_SET(sockfd, &read_fds);
-
-        timeout.tv_sec = TIMEOUT;
-        timeout.tv_usec = 0;
-
-        int ret = select(sockfd + 1, &read_fds, NULL, NULL, &timeout);
-        if (ret > 0)
-        {
-            if (FD_ISSET(sockfd, &read_fds))
-            {
-                ssize_t n = recvfrom(sockfd, buffer, BUFFER_SIZE, 0, (struct sockaddr *)server_addr, server_len);
-                if (n < 0)
-                {
-                    return -1;
-                }
-
-                int opcode = ntohs(*(uint16_t *)buffer);
-                int recv_block = ntohs(*(uint16_t *)(buffer + 2));
-
-                if (opcode == ACK && recv_block == block)
-                {
-                    printf("Recibido paquete ACK número: %d\n", recv_block);
-                    return 0;
-                }
-            }
-        }
-        else if (ret == 0)
-        {
-            printf("Timeout esperando ACK número: %d\n", block);
-            retries++;
-        }
-        else
-        {
-            perror("select");
-            return -1;
-        }
-    }
-
-    return -1;
-}
-
 void send_rrq(int sockfd, struct sockaddr_in *server_addr, const char *filename)
 {
     char buffer[BUFFER_SIZE];
@@ -161,7 +110,7 @@ void send_wrq(int sockfd, struct sockaddr_in *server_addr, const char *filename)
 
     char filepath[256];
     snprintf(filepath, sizeof(filepath), "%s%s", BASE_DIR, filename);
-    printf("ruta completa: %s\n", filepath);
+    // printf("ruta completa: %s\n", filepath);
 
     FILE *file = fopen(filepath, "rb");
     if (!file)
@@ -176,38 +125,52 @@ void send_wrq(int sockfd, struct sockaddr_in *server_addr, const char *filename)
 
     while (1)
     {
-        if (wait_for_ack(sockfd, &from_addr, &from_len, block) < 0)
+        // Esperar ACK
+        n = recvfrom(sockfd, buffer, BUFFER_SIZE, 0, (struct sockaddr *)&from_addr, &from_len);
+        printf("Recibido paquete ACK número: %d\n", ntohs(*(uint16_t *)(buffer + 2)));
+        if (n < 0)
         {
-            send_error(sockfd, &from_addr, from_len, 0, "ACK not received");
+            error_exit("recvfrom");
+        }
+
+        int opcode = ntohs(*(uint16_t *)buffer);
+        int recv_block = ntohs(*(uint16_t *)(buffer + 2));
+
+        if (opcode == ACK && recv_block == block)
+        {
+            block++;
+
+            memset(buffer, 0, BUFFER_SIZE);
+            *(uint16_t *)buffer = htons(DATA);
+            *(uint16_t *)(buffer + 2) = htons(block);
+
+            n = fread(buffer + 4, 1, DATA_SIZE, file);
+            printf("Enviando paquete DATA número: %d\n", block);
+            sendto(sockfd, buffer, 4 + n, 0, (struct sockaddr *)&from_addr, from_len);
+
+            if (n < DATA_SIZE)
+            {
+                // Esperar ultimo ACK
+                n = recvfrom(sockfd, buffer, BUFFER_SIZE, 0, (struct sockaddr *)&from_addr, &from_len);
+                printf("Recibido paquete ACK número: %d\n", ntohs(*(uint16_t *)(buffer + 2)));
+                break; // Fin de archivo
+            }
+        }
+        else if (opcode == ERROR)
+        {
+            fprintf(stderr, "Error recibido: %s\n", buffer + 4);
             fclose(file);
             return;
         }
-
-        block++;
-
-        memset(buffer, 0, BUFFER_SIZE);
-        *(uint16_t *)buffer = htons(DATA);
-        *(uint16_t *)(buffer + 2) = htons(block);
-
-        n = fread(buffer + 4, 1, DATA_SIZE, file);
-        printf("Enviando paquete DATA número: %d\n", block);
-        sendto(sockfd, buffer, 4 + n, 0, (struct sockaddr *)&from_addr, from_len);
-
-        if (n < DATA_SIZE)
+        else
         {
-            // Esperar ultimo ACK
-            if (wait_for_ack(sockfd, &from_addr, &from_len, block) < 0)
-            {
-                send_error(sockfd, &from_addr, from_len, 0, "ACK not received");
-                fclose(file);
-                return;
-            }
-            break; // Fin de archivo
+            fprintf(stderr, "Error: operación TFTP ilegal\n");
+            fclose(file);
+            return;
         }
     }
 
     fclose(file);
-    printf("Envio concluido\n");
 }
 
 int main(int argc, char *argv[])
