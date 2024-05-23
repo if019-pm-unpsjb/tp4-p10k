@@ -5,14 +5,10 @@
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <errno.h>
-#include <sys/select.h>
 
-#define SERVER_PORT 69
-#define BUFFER_SIZE 516
-#define DATA_SIZE 512
-#define BASE_DIR "./ficherosTFTPcliente/" // Cambia esto al directorio deseado
-#define MAX_RETRIES 3
-#define TIMEOUT 5 // Timeout en segundos
+#define TAMANO_BUFFER 516
+#define TAMANO_DATOS 512
+#define DIRECTORIO_BASE "./ficherosTFTPcliente/"
 
 enum
 {
@@ -23,135 +19,137 @@ enum
     ERROR
 };
 
-void error_exit(const char *msg)
+void salida_error(const char *msg)
 {
     perror(msg);
     exit(EXIT_FAILURE);
 }
 
-void send_rrq(int sockfd, struct sockaddr_in *server_addr, const char *filename)
+void enviar_rrq(int sockfd, struct sockaddr_in *addr_servidor, const char *nombre_archivo)
 {
-    char buffer[BUFFER_SIZE];
-    memset(buffer, 0, BUFFER_SIZE);
+    char buffer[TAMANO_BUFFER];
+    memset(buffer, 0, TAMANO_BUFFER);
 
     *(uint16_t *)buffer = htons(RRQ);
-    strcpy(buffer + 2, filename);
-    strcpy(buffer + 2 + strlen(filename) + 1, "octet");
+    strcpy(buffer + 2, nombre_archivo);
+    strcpy(buffer + 2 + strlen(nombre_archivo) + 1, "octet");
 
-    sendto(sockfd, buffer, 2 + strlen(filename) + 1 + strlen("octet") + 1, 0, (struct sockaddr *)server_addr, sizeof(*server_addr));
-    printf("Enviando solicitud de lectura para el archivo: %s\n", filename);
+    sendto(sockfd, buffer, 2 + strlen(nombre_archivo) + 1 + strlen("octet") + 1, 0, (struct sockaddr *)addr_servidor, sizeof(*addr_servidor));
+    printf("Enviando solicitud de lectura para el archivo: %s\n", nombre_archivo);
 
-    char filepath[256];
-    snprintf(filepath, sizeof(filepath), "%s%s", BASE_DIR, filename);
-    printf("ruta completa: %s\n", filepath);
+    char ruta_archivo[256];
+    snprintf(ruta_archivo, sizeof(ruta_archivo), "%s%s", DIRECTORIO_BASE, nombre_archivo);
 
-    FILE *file = fopen(filepath, "wb");
-    if (!file)
+    FILE *archivo = fopen(ruta_archivo, "wb");
+    if (!archivo)
     {
-        error_exit("fopen");
+        salida_error("fopen");
     }
 
-    struct sockaddr_in from_addr;
-    socklen_t from_len = sizeof(from_addr);
+    struct sockaddr_in addr_from;
+    socklen_t len_from = sizeof(addr_from);
     ssize_t n;
-    int block = 1;
+    int bloque = 1;
 
     while (1)
     {
-        n = recvfrom(sockfd, buffer, BUFFER_SIZE, 0, (struct sockaddr *)&from_addr, &from_len);
-        int opcode = ntohs(*(uint16_t *)buffer);
-        int recv_block = ntohs(*(uint16_t *)(buffer + 2));
-
-        if (opcode == DATA && recv_block == block)
+        n = recvfrom(sockfd, buffer, TAMANO_BUFFER, 0, (struct sockaddr *)&addr_from, &len_from);
+        if (n < 0)
         {
-            fwrite(buffer + 4, 1, n - 4, file);
-            printf("Recibido paquete DATA número: %d\n", recv_block);
+            salida_error("recvfrom");
+        }
+        int opcode = ntohs(*(uint16_t *)buffer);
+        int bloque_recibido = ntohs(*(uint16_t *)(buffer + 2));
 
-            memset(buffer, 0, BUFFER_SIZE);
+        if (opcode == DATA && bloque_recibido == bloque)
+        {
+            printf("Recibido paquete DATA número: %d\n", bloque_recibido);
+            fwrite(buffer + 4, 1, n - 4, archivo);
+
+            memset(buffer, 0, TAMANO_BUFFER);
             *(uint16_t *)buffer = htons(ACK);
-            *(uint16_t *)(buffer + 2) = htons(block);
+            *(uint16_t *)(buffer + 2) = htons(bloque);
 
-            sendto(sockfd, buffer, 4, 0, (struct sockaddr *)&from_addr, from_len);
-            printf("Enviando paquete ACK número: %d\n", block);
+            printf("Enviando paquete ACK número: %d\n", bloque);
+            sendto(sockfd, buffer, 4, 0, (struct sockaddr *)&addr_from, len_from);
 
-            if (n < BUFFER_SIZE)
+            if (n < TAMANO_BUFFER)
                 break; // Fin de archivo
-            block++;
+            bloque++;
         }
         else if (opcode == ERROR)
         {
             fprintf(stderr, "Error recibido: %s\n", buffer + 4);
-            fclose(file);
+            fclose(archivo);
             return;
         }
         else
         {
             fprintf(stderr, "Error: operación TFTP ilegal\n");
-            fclose(file);
+            fclose(archivo);
             return;
         }
     }
 
-    fclose(file);
+    fclose(archivo);
     printf("Fichero recibido.\n");
 }
 
-void send_wrq(int sockfd, struct sockaddr_in *server_addr, const char *filename)
+void enviar_wrq(int sockfd, struct sockaddr_in *addr_servidor, const char *nombre_archivo)
 {
-    char buffer[BUFFER_SIZE];
-    memset(buffer, 0, BUFFER_SIZE);
+    char buffer[TAMANO_BUFFER];
+    memset(buffer, 0, TAMANO_BUFFER);
 
     *(uint16_t *)buffer = htons(WRQ);
-    strcpy(buffer + 2, filename);
-    strcpy(buffer + 2 + strlen(filename) + 1, "octet");
+    strcpy(buffer + 2, nombre_archivo);
+    strcpy(buffer + 2 + strlen(nombre_archivo) + 1, "octet");
 
-    sendto(sockfd, buffer, 2 + strlen(filename) + 1 + strlen("octet") + 1, 0, (struct sockaddr *)server_addr, sizeof(*server_addr));
-    printf("Enviando solicitud de escritura para el archivo: %s\n", filename);
+    char ruta_archivo[256];
+    snprintf(ruta_archivo, sizeof(ruta_archivo), "%s%s", DIRECTORIO_BASE, nombre_archivo);
 
-    char filepath[256];
-    snprintf(filepath, sizeof(filepath), "%s%s", BASE_DIR, filename);
-    // printf("ruta completa: %s\n", filepath);
-
-    FILE *file = fopen(filepath, "rb");
-    if (!file)
+    FILE *archivo = fopen(ruta_archivo, "rb");
+    if (!archivo)
     {
-        error_exit("fopen");
+        salida_error("fopen");
     }
 
-    struct sockaddr_in from_addr;
-    socklen_t from_len = sizeof(from_addr);
+    sendto(sockfd, buffer, 2 + strlen(nombre_archivo) + 1 + strlen("octet") + 1, 0, (struct sockaddr *)addr_servidor, sizeof(*addr_servidor));
+    printf("Enviando solicitud de escritura para el archivo: %s\n", nombre_archivo);
+
+    struct sockaddr_in addr_from;
+    socklen_t len_from = sizeof(addr_from);
     ssize_t n;
-    int block = 0;
+    int bloque = 0;
 
     while (1)
     {
         // Esperar ACK
-        n = recvfrom(sockfd, buffer, BUFFER_SIZE, 0, (struct sockaddr *)&from_addr, &from_len);
-        printf("Recibido paquete ACK número: %d\n", ntohs(*(uint16_t *)(buffer + 2)));
+        n = recvfrom(sockfd, buffer, TAMANO_BUFFER, 0, (struct sockaddr *)&addr_from, &len_from);
         if (n < 0)
         {
-            error_exit("recvfrom");
+            salida_error("recvfrom");
         }
 
         int opcode = ntohs(*(uint16_t *)buffer);
-        int recv_block = ntohs(*(uint16_t *)(buffer + 2));
+        int bloque_recibido = ntohs(*(uint16_t *)(buffer + 2));
 
-        if (opcode == ACK && recv_block == block)
+        if (opcode == ACK && bloque_recibido == bloque)
         {
-            block++;
+            printf("Recibido paquete ACK número: %d\n", ntohs(*(uint16_t *)(buffer + 2)));
+            bloque++;
 
-            memset(buffer, 0, BUFFER_SIZE);
+            memset(buffer, 0, TAMANO_BUFFER);
             *(uint16_t *)buffer = htons(DATA);
-            *(uint16_t *)(buffer + 2) = htons(block);
+            *(uint16_t *)(buffer + 2) = htons(bloque);
 
-            n = fread(buffer + 4, 1, DATA_SIZE, file);
-            printf("Enviando paquete DATA número: %d\n", block);
-            sendto(sockfd, buffer, 4 + n, 0, (struct sockaddr *)&from_addr, from_len);
+            n = fread(buffer + 4, 1, TAMANO_DATOS, archivo);
+            printf("Enviando paquete DATA número: %d\n", bloque);
+            sendto(sockfd, buffer, 4 + n, 0, (struct sockaddr *)&addr_from, len_from);
 
-            if (n < DATA_SIZE)
+            if (n < TAMANO_DATOS)
             {
-                // Esperar ultimo ACK
-                n = recvfrom(sockfd, buffer, BUFFER_SIZE, 0, (struct sockaddr *)&from_addr, &from_len);
+                // Esperar último ACK
+                n = recvfrom(sockfd, buffer, TAMANO_BUFFER, 0, (struct sockaddr *)&addr_from, &len_from);
                 printf("Recibido paquete ACK número: %d\n", ntohs(*(uint16_t *)(buffer + 2)));
                 break; // Fin de archivo
             }
@@ -159,56 +157,64 @@ void send_wrq(int sockfd, struct sockaddr_in *server_addr, const char *filename)
         else if (opcode == ERROR)
         {
             fprintf(stderr, "Error recibido: %s\n", buffer + 4);
-            fclose(file);
+            fclose(archivo);
             return;
         }
         else
         {
             fprintf(stderr, "Error: operación TFTP ilegal\n");
-            fclose(file);
+            fclose(archivo);
             return;
         }
     }
 
-    fclose(file);
+    fclose(archivo);
+    printf("Envío concluido\n");
 }
 
 int main(int argc, char *argv[])
 {
-    if (argc != 4)
+    if (argc != 5)
     {
-        fprintf(stderr, "Uso: %s <IP servidor> <nombre de archivo> <r|w>\n", argv[0]);
+        fprintf(stderr, "Uso: %s <IP servidor> <Puerto> <nombre de archivo> <r|w>\n", argv[0]);
         exit(EXIT_FAILURE);
     }
 
-    const char *server_ip = argv[1];
-    const char *filename = argv[2];
-    char mode = argv[3][0];
+    const char *ip_servidor = argv[1];
+    int puerto = atoi(argv[2]);
+    if (puerto <= 0 || puerto > 65535)
+    {
+        fprintf(stderr, "Puerto inválido: %d\n", puerto);
+        exit(EXIT_FAILURE);
+    }
+    const char *nombre_archivo = argv[3];
+    char modo = argv[4][0];
 
     int sockfd;
-    struct sockaddr_in server_addr;
+    struct sockaddr_in addr_servidor;
 
     sockfd = socket(AF_INET, SOCK_DGRAM, 0);
     if (sockfd < 0)
     {
-        error_exit("socket");
+        salida_error("socket");
     }
 
-    memset(&server_addr, 0, sizeof(server_addr));
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(SERVER_PORT);
-    if (inet_pton(AF_INET, server_ip, &server_addr.sin_addr) <= 0)
+    memset(&addr_servidor, 0, sizeof(addr_servidor));
+    addr_servidor.sin_family = AF_INET;
+    addr_servidor.sin_port = htons(puerto);
+    if (inet_pton(AF_INET, ip_servidor, &addr_servidor.sin_addr) <= 0)
     {
-        error_exit("inet_pton");
+        fprintf(stderr, "Dirección IP inválida: %s\n", ip_servidor);
+        exit(EXIT_FAILURE);
     }
 
-    if (mode == 'r')
+    if (modo == 'r')
     {
-        send_rrq(sockfd, &server_addr, filename);
+        enviar_rrq(sockfd, &addr_servidor, nombre_archivo);
     }
-    else if (mode == 'w')
+    else if (modo == 'w')
     {
-        send_wrq(sockfd, &server_addr, filename);
+        enviar_wrq(sockfd, &addr_servidor, nombre_archivo);
     }
     else
     {

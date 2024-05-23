@@ -6,10 +6,9 @@
 #include <fcntl.h>
 #include <errno.h>
 
-#define PORT 69
-#define BUFFER_SIZE 516
-#define DATA_SIZE 512
-#define BASE_DIR "./ficherosTFTPserver/" // Cambia esto al directorio deseado
+#define TAMANO_BUFFER 516
+#define TAMANO_DATOS 512
+#define DIRECTORIO_BASE "./ficherosTFTPserver/"
 
 enum
 {
@@ -20,226 +19,245 @@ enum
     ERROR
 };
 
-void error_exit(const char *msg)
+void salida_error(const char *msg)
 {
     perror(msg);
     exit(EXIT_FAILURE);
 }
 
-void send_error(int sockfd, struct sockaddr_in *client_addr, socklen_t client_len, int error_code, const char *error_msg)
+void enviar_error(int sockfd, struct sockaddr_in *addr_cliente, socklen_t len_cliente, int codigo_error, const char *msg_error)
 {
-    char buffer[BUFFER_SIZE];
-    memset(buffer, 0, BUFFER_SIZE);
+    char buffer[TAMANO_BUFFER];
+    memset(buffer, 0, TAMANO_BUFFER);
 
     *(uint16_t *)buffer = htons(ERROR);
-    *(uint16_t *)(buffer + 2) = htons(error_code);
-    strcpy(buffer + 4, error_msg);
+    *(uint16_t *)(buffer + 2) = htons(codigo_error);
+    strcpy(buffer + 4, msg_error);
 
-    sendto(sockfd, buffer, 4 + strlen(error_msg) + 1, 0, (struct sockaddr *)client_addr, client_len);
-    printf("Enviado paquete ERROR código: %d, mensaje: %s\n", error_code, error_msg);
+    sendto(sockfd, buffer, 4 + strlen(msg_error) + 1, 0, (struct sockaddr *)addr_cliente, len_cliente);
+    printf("Enviado paquete ERROR código: %d, mensaje: %s\n", codigo_error, msg_error);
 }
 
-void handle_rrq(int sockfd, struct sockaddr_in *client_addr, socklen_t client_len, const char *filename)
+void manejar_rrq(int sockfd, struct sockaddr_in *addr_cliente, socklen_t len_cliente, const char *nombre_archivo)
 {
-    char filepath[256];
-    snprintf(filepath, sizeof(filepath), "%s%s", BASE_DIR, filename);
-    // printf("ruta completa: %s\n", filepath);
+    char ruta_archivo[256];
+    snprintf(ruta_archivo, sizeof(ruta_archivo), "%s%s", DIRECTORIO_BASE, nombre_archivo);
 
-    int file = open(filepath, O_RDONLY);
-    if (file < 0)
+    int archivo = open(ruta_archivo, O_RDONLY);
+    if (archivo < 0)
     {
         if (errno == ENOENT)
         {
-            send_error(sockfd, client_addr, client_len, 1, "File not found");
+            enviar_error(sockfd, addr_cliente, len_cliente, 1, "Archivo no encontrado");
         }
         else if (errno == EACCES)
         {
-            send_error(sockfd, client_addr, client_len, 2, "Access violation");
+            enviar_error(sockfd, addr_cliente, len_cliente, 2, "Violación de acceso");
         }
         else
         {
-            send_error(sockfd, client_addr, client_len, 0, "Not defined");
+            enviar_error(sockfd, addr_cliente, len_cliente, 0, "No definido");
         }
         return;
     }
 
-    char buffer[BUFFER_SIZE];
-    char data_buffer[DATA_SIZE];
-    int block = 1;
-    ssize_t read_bytes;
+    char buffer[TAMANO_BUFFER];
+    char buffer_datos[TAMANO_DATOS];
+    int bloque = 1;
+    ssize_t bytes_leidos;
 
-    while ((read_bytes = read(file, data_buffer, DATA_SIZE)) > 0)
+    while ((bytes_leidos = read(archivo, buffer_datos, TAMANO_DATOS)) > 0)
     {
-        memset(buffer, 0, BUFFER_SIZE);
+        memset(buffer, 0, TAMANO_BUFFER);
         *(uint16_t *)buffer = htons(DATA);
-        *(uint16_t *)(buffer + 2) = htons(block);
-        memcpy(buffer + 4, data_buffer, read_bytes);
+        *(uint16_t *)(buffer + 2) = htons(bloque);
+        memcpy(buffer + 4, buffer_datos, bytes_leidos);
 
-        printf("Enviando paquete DATA número: %d\n", block);
-        sendto(sockfd, buffer, 4 + read_bytes, 0, (struct sockaddr *)client_addr, client_len);
+        printf("Enviando paquete DATA número: %d\n", bloque);
+        sendto(sockfd, buffer, 4 + bytes_leidos, 0, (struct sockaddr *)addr_cliente, len_cliente);
 
         // Esperar ACK
-        recvfrom(sockfd, buffer, BUFFER_SIZE, 0, (struct sockaddr *)client_addr, &client_len);
-        printf("Recibido paquete ACK número: %d\n", ntohs(*(uint16_t *)(buffer + 2)));
+        recvfrom(sockfd, buffer, TAMANO_BUFFER, 0, (struct sockaddr *)addr_cliente, &len_cliente);
 
-        if (ntohs(*(uint16_t *)buffer) != ACK || ntohs(*(uint16_t *)(buffer + 2)) != block)
+        if (ntohs(*(uint16_t *)buffer) != ACK || ntohs(*(uint16_t *)(buffer + 2)) != bloque)
         {
-            send_error(sockfd, client_addr, client_len, 4, "Illegal TFTP operation");
-            close(file);
+            enviar_error(sockfd, addr_cliente, len_cliente, 4, "Operación TFTP ilegal");
+            close(archivo);
             return;
         }
+        printf("Recibido paquete ACK número: %d\n", ntohs(*(uint16_t *)(buffer + 2)));
 
-        block++;
+        bloque++;
     }
 
-    close(file);
-    printf("Envio concluido\n");
+    close(archivo);
+    printf("Envío concluido\n");
 }
 
-void handle_wrq(int sockfd, struct sockaddr_in *client_addr, socklen_t client_len, const char *filename)
+void manejar_wrq(int sockfd, struct sockaddr_in *addr_cliente, socklen_t len_cliente, const char *nombre_archivo)
 {
-    char filepath[256];
-    snprintf(filepath, sizeof(filepath), "%s%s", BASE_DIR, filename);
-    printf("ruta completa: %s\n", filepath);
-    int file = open(filepath, O_WRONLY | O_CREAT | O_TRUNC, 0666);
-    if (file < 0)
+    char ruta_archivo[256];
+    snprintf(ruta_archivo, sizeof(ruta_archivo), "%s%s", DIRECTORIO_BASE, nombre_archivo);
+
+    int archivo = open(ruta_archivo, O_WRONLY | O_CREAT | O_EXCL, 0666);
+    if (archivo < 0)
     {
         if (errno == EEXIST)
         {
-            send_error(sockfd, client_addr, client_len, 6, "File already exists");
+            enviar_error(sockfd, addr_cliente, len_cliente, 6, "El archivo ya existe");
         }
         else if (errno == EACCES)
         {
-            send_error(sockfd, client_addr, client_len, 2, "Access violation");
+            enviar_error(sockfd, addr_cliente, len_cliente, 2, "Violación de acceso");
         }
         else
         {
-            send_error(sockfd, client_addr, client_len, 0, "Not defined");
+            enviar_error(sockfd, addr_cliente, len_cliente, 0, "No definido");
         }
         return;
     }
 
-    char buffer[BUFFER_SIZE];
-    int block = 0;
+    char buffer[TAMANO_BUFFER];
+    int bloque = 0;
     while (1)
     {
         // Enviar ACK
-        memset(buffer, 0, BUFFER_SIZE);
+        memset(buffer, 0, TAMANO_BUFFER);
         *(uint16_t *)buffer = htons(ACK);
-        *(uint16_t *)(buffer + 2) = htons(block);
+        *(uint16_t *)(buffer + 2) = htons(bloque);
 
-        printf("Enviando paquete ACK número: %d\n", block);
-        sendto(sockfd, buffer, 4, 0, (struct sockaddr *)client_addr, client_len);
+        printf("Enviando paquete ACK número: %d\n", bloque);
+        sendto(sockfd, buffer, 4, 0, (struct sockaddr *)addr_cliente, len_cliente);
 
         // Recibir datos
-        ssize_t n = recvfrom(sockfd, buffer, BUFFER_SIZE, 0, (struct sockaddr *)client_addr, &client_len);
-        printf("Recibido paquete DATA número: %d\n", ntohs(*(uint16_t *)(buffer + 2)));
+        ssize_t n = recvfrom(sockfd, buffer, TAMANO_BUFFER, 0, (struct sockaddr *)addr_cliente, &len_cliente);
+
         if (n < 0)
         {
-            send_error(sockfd, client_addr, client_len, 0, "Undefined error");
-            close(file);
+            enviar_error(sockfd, addr_cliente, len_cliente, 0, "No definido");
+            close(archivo);
             return;
         }
 
         int opcode = ntohs(*(uint16_t *)buffer);
-        int recv_block = ntohs(*(uint16_t *)(buffer + 2));
+        int bloque_recibido = ntohs(*(uint16_t *)(buffer + 2));
 
-        if (opcode == DATA && recv_block == block + 1)
+        if (opcode == DATA && bloque_recibido == bloque + 1)
         {
-            if (write(file, buffer + 4, n - 4) < 0)
+            printf("Recibido paquete DATA número: %d\n", ntohs(*(uint16_t *)(buffer + 2)));
+            if (write(archivo, buffer + 4, n - 4) < 0)
             {
                 if (errno == ENOSPC)
                 {
-                    send_error(sockfd, client_addr, client_len, 3, "Disk full or allocation exceeded");
+                    enviar_error(sockfd, addr_cliente, len_cliente, 3, "Disco lleno o asignación excedida");
                 }
                 else
                 {
-                    send_error(sockfd, client_addr, client_len, 0, "Not defined");
+                    enviar_error(sockfd, addr_cliente, len_cliente, 0, "No definido");
                 }
-                close(file);
+                close(archivo);
                 return;
             }
-            block++;
+            bloque++;
 
-            if (n < BUFFER_SIZE)
+            if (n < TAMANO_BUFFER)
             {
-                // Enviar ultimo ACK
-                memset(buffer, 0, BUFFER_SIZE);
+                // Enviar último ACK
+                memset(buffer, 0, TAMANO_BUFFER);
                 *(uint16_t *)buffer = htons(ACK);
-                *(uint16_t *)(buffer + 2) = htons(block);
+                *(uint16_t *)(buffer + 2) = htons(bloque);
 
-                printf("Enviando paquete ACK número: %d\n", block);
-                sendto(sockfd, buffer, 4, 0, (struct sockaddr *)client_addr, client_len);
+                printf("Enviando paquete ACK número: %d\n", bloque);
+                sendto(sockfd, buffer, 4, 0, (struct sockaddr *)addr_cliente, len_cliente);
                 break; // Fin de archivo
             }
         }
         else
         {
-            send_error(sockfd, client_addr, client_len, 4, "Illegal TFTP operation");
-            close(file);
+            enviar_error(sockfd, addr_cliente, len_cliente, 4, "Operación TFTP ilegal");
+            close(archivo);
             return;
         }
     }
 
-    close(file);
+    close(archivo);
     printf("Fichero recibido.\n");
 }
 
-void handle_request(int sockfd, struct sockaddr_in *client_addr, socklen_t client_len)
+void manejar_solicitud(int sockfd, struct sockaddr_in *addr_cliente, socklen_t len_cliente)
 {
-    char buffer[BUFFER_SIZE];
+    char buffer[TAMANO_BUFFER];
     ssize_t n;
 
-    n = recvfrom(sockfd, buffer, BUFFER_SIZE, 0, (struct sockaddr *)client_addr, &client_len);
+    n = recvfrom(sockfd, buffer, TAMANO_BUFFER, 0, (struct sockaddr *)addr_cliente, &len_cliente);
     if (n < 0)
     {
-        error_exit("recvfrom");
+        salida_error("recvfrom");
     }
 
     int opcode = ntohs(*(uint16_t *)buffer);
-    char *filename = buffer + 2;
+    char *nombre_archivo = buffer + 2;
 
     if (opcode == RRQ)
     {
-        printf("Solicitud de lectura recibida para el archivo: %s\n", filename);
-        handle_rrq(sockfd, client_addr, client_len, filename);
+        printf("Solicitud de lectura recibida para el archivo: %s\n", nombre_archivo);
+        manejar_rrq(sockfd, addr_cliente, len_cliente, nombre_archivo);
     }
     else if (opcode == WRQ)
     {
-        printf("Solicitud de escritura recibida para el archivo: %s\n", filename);
-        handle_wrq(sockfd, client_addr, client_len, filename);
+        printf("Solicitud de escritura recibida para el archivo: %s\n", nombre_archivo);
+        manejar_wrq(sockfd, addr_cliente, len_cliente, nombre_archivo);
     }
     else
     {
-        send_error(sockfd, client_addr, client_len, 4, "Illegal TFTP operation");
+        enviar_error(sockfd, addr_cliente, len_cliente, 4, "Operación TFTP ilegal");
     }
 }
 
-int main()
+int main(int argc, char *argv[])
 {
+    if (argc != 3)
+    {
+        fprintf(stderr, "Uso: %s <DIRECCION_IP> <PUERTO>\n", argv[0]);
+        exit(EXIT_FAILURE);
+    }
+
+    const char *direccion_ip = argv[1];
+    int puerto = atoi(argv[2]);
+    if (puerto <= 0 || puerto > 65535)
+    {
+        fprintf(stderr, "Puerto inválido: %d\n", puerto);
+        exit(EXIT_FAILURE);
+    }
+
     int sockfd;
-    struct sockaddr_in server_addr, client_addr;
-    socklen_t client_len = sizeof(client_addr);
+    struct sockaddr_in addr_servidor, addr_cliente;
+    socklen_t len_cliente = sizeof(addr_cliente);
 
     sockfd = socket(AF_INET, SOCK_DGRAM, 0);
     if (sockfd < 0)
     {
-        error_exit("socket");
+        salida_error("socket");
     }
 
-    memset(&server_addr, 0, sizeof(server_addr));
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_addr.s_addr = INADDR_ANY;
-    server_addr.sin_port = htons(PORT);
-
-    if (bind(sockfd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
+    memset(&addr_servidor, 0, sizeof(addr_servidor));
+    addr_servidor.sin_family = AF_INET;
+    if (inet_pton(AF_INET, direccion_ip, &addr_servidor.sin_addr) <= 0)
     {
-        error_exit("bind");
+        fprintf(stderr, "Dirección IP inválida: %s\n", direccion_ip);
+        exit(EXIT_FAILURE);
+    }
+    addr_servidor.sin_port = htons(puerto);
+
+    if (bind(sockfd, (struct sockaddr *)&addr_servidor, sizeof(addr_servidor)) < 0)
+    {
+        salida_error("bind");
     }
 
     while (1)
     {
-        handle_request(sockfd, &client_addr, client_len);
+        printf("\nServidor TFTP escuchando en %s:%d\n\n", direccion_ip, puerto);
+        manejar_solicitud(sockfd, &addr_cliente, len_cliente);
     }
 
     close(sockfd);
