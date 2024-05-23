@@ -18,6 +18,9 @@ client-tftp: client-tftp.c
 server-chat: server-chat.c 
 	$(CC) -o bin/$@ $^ $(CFLAGS)
 
+client-chat: client-chat.c 
+	$(CC) -o bin/$@ $^ $(CFLAGS)
+
 .PHONY: clean
 clean:
 	rm -f $(LIST)
