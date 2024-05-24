@@ -2,7 +2,7 @@ CC=gcc
 CFLAGS=-Wall -Werror -g -pthread 
 BIN=./bin
 
-PROGS=server-tftp server-chat
+PROGS=server-tftp server-chat client-tftp client-chat
 
 .PHONY: all
 all: $(PROGS)
