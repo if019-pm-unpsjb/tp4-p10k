@@ -4,6 +4,8 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <pthread.h>
+#include <fcntl.h>
+#include <errno.h>
 
 #define PORT 8080
 #define BUFFER_SIZE 1024
@@ -66,6 +68,25 @@ int main()
     if (strncmp(buffer, "FILE", 4) == 0)
     {
       // Manejo del envío de archivos
+      // nombre del archivo
+      char destinatario[50];
+      char filename[BUFFER_SIZE - 100];
+      sscanf(buffer, "FILE @%s %[^\n]", destinatario, filename);
+
+      int archivo = open(filename, O_RDONLY);
+      if (archivo < 0)
+      {
+        printf("\n Fallo al abrir archivo \n");
+        printf("%s\n", destinatario);
+        printf("%s\n", buffer);
+        printf("%s\n", destinatario);
+
+      } else
+      {
+        printf("\n abrio correctamente \n");
+      }
+      
+
     }
     else
     {
