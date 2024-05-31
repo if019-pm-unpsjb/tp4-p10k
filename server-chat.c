@@ -5,7 +5,6 @@
 #include <arpa/inet.h>
 #include <pthread.h>
 
-#define PORT 8080
 #define BUFFER_SIZE 1024
 
 typedef struct
@@ -21,7 +20,7 @@ pthread_mutex_t clients_mutex = PTHREAD_MUTEX_INITIALIZER;
 void send_message(char *message, int sender_socket)
 {
   char destinatario[50];
-  char msg[BUFFER_SIZE - 100];
+  char msg[BUFFER_SIZE - sizeof(destinatario)];
   char remitente[50] = "";
 
   // Obtener el nombre del remitente basado en el socket
@@ -39,7 +38,10 @@ void send_message(char *message, int sender_socket)
   // Parsear el mensaje para obtener el destinatario y el mensaje real
   if (sscanf(message, "@%s %[^\n]", destinatario, msg) != 2)
   {
-    return; // Si el formato no es correcto, no hacemos nada
+    char msgError[BUFFER_SIZE];
+    snprintf(msgError, sizeof(msgError), "mensaje no enviado revisar formato");
+    send(sender_socket, msgError, strlen(msgError), 0);
+    return;
   }
 
   // Crear el mensaje a enviar en el formato @nombre_del_remitente: mensaje
@@ -78,10 +80,7 @@ void handle_file_transfer(char *message, int sender_socket)
   pthread_mutex_unlock(&clients_mutex);
 
   // Parsear el mensaje para obtener el destinatario, nombre del archivo y tamaño del archivo
-  if (sscanf(message, "FILE @%s %s %d", destinatario, file_name, &file_size) != 3)
-  {
-    return; // Si el formato no es correcto, no hacemos nada
-  }
+  sscanf(message, "FILE @%s %s %d", destinatario, file_name, &file_size);
 
   // Enviar el mensaje de inicio de transferencia de archivo al destinatario
   char init_message[BUFFER_SIZE];
@@ -130,7 +129,7 @@ void *handle_client(void *arg)
     pthread_mutex_unlock(&clients_mutex);
 
     char auth_message[BUFFER_SIZE];
-    sprintf(auth_message, "OK @%s\nPara enviar un mensaje: '@nombre_usuario_destinatorio mensaje'\nPara enviar un archivo: 'FILE @nombre_usuario nombre_archivo'", username);
+    sprintf(auth_message, "OK @%s\nPara enviar un mensaje: '@nombre_usuario_destinatorio mensaje'\nPara enviar un archivo: 'FILE @nombre_usuario_destinatorio nombre_archivo'", username);
     send(client_socket, auth_message, strlen(auth_message), 0);
   }
 
@@ -167,12 +166,21 @@ void *handle_client(void *arg)
   pthread_exit(NULL);
 }
 
-int main()
+int main(int argc, char *argv[])
 {
   int server_socket, client_socket;
   struct sockaddr_in server_addr, client_addr;
   socklen_t client_addr_size = sizeof(client_addr);
   pthread_t tid;
+
+  if (argc != 3)
+  {
+    fprintf(stderr, "Uso: %s <dirección IP> <puerto>\n", argv[0]);
+    exit(EXIT_FAILURE);
+  }
+
+  char *ip_address = argv[1];
+  int port = atoi(argv[2]);
 
   if ((server_socket = socket(AF_INET, SOCK_STREAM, 0)) == 0)
   {
@@ -181,8 +189,8 @@ int main()
   }
 
   server_addr.sin_family = AF_INET;
-  server_addr.sin_addr.s_addr = INADDR_ANY;
-  server_addr.sin_port = htons(PORT);
+  server_addr.sin_addr.s_addr = inet_addr(ip_address);
+  server_addr.sin_port = htons(port);
 
   if (bind(server_socket, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
   {
@@ -198,7 +206,7 @@ int main()
     exit(EXIT_FAILURE);
   }
 
-  printf("Servidor escuchando en el puerto %d\n", PORT);
+  printf("Servidor escuchando en %s:%d\n", ip_address, port);
 
   while ((client_socket = accept(server_socket, (struct sockaddr *)&client_addr, &client_addr_size)) >= 0)
   {

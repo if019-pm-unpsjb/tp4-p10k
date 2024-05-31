@@ -7,16 +7,19 @@
 #include <fcntl.h>
 #include <errno.h>
 
-#define PORT 8080
 #define BUFFER_SIZE 1024
-#define DIRECTORIO_BASE "./ficherosTFTPcliente/"
+#define DIRECTORIO_BASE_ENVIAR "./ficherosChatEnviar/"
+#define DIRECTORIO_BASE_RECIBIR "./ficherosChatRecibir/"
 
 int sock = 0;
 char username[50];
 
 void receive_file(char *remitente, char *file_name, int file_size)
 {
-  FILE *file = fopen(file_name, "wb");
+  char ruta_archivo[256];
+  snprintf(ruta_archivo, sizeof(ruta_archivo), "%s%s", DIRECTORIO_BASE_RECIBIR, file_name);
+
+  FILE *file = fopen(ruta_archivo, "wb");
   if (file == NULL)
   {
     perror("Error al abrir el archivo");
@@ -69,11 +72,11 @@ void *receive_messages(void *arg)
 void send_file(char *destinatario, char *file_name)
 {
   char ruta_archivo[256];
-  snprintf(ruta_archivo, sizeof(ruta_archivo), "%s%s", DIRECTORIO_BASE, file_name);
+  snprintf(ruta_archivo, sizeof(ruta_archivo), "%s%s", DIRECTORIO_BASE_ENVIAR, file_name);
   FILE *file = fopen(ruta_archivo, "rb");
   if (file == NULL)
   {
-    perror("Error al abrir el archivo");
+    printf("Error al abrir el archivo revisar formato\n");
     return;
   }
 
@@ -97,30 +100,39 @@ void send_file(char *destinatario, char *file_name)
   printf("Archivo enviado a %s\n", destinatario);
 }
 
-int main()
+int main(int argc, char *argv[])
 {
   struct sockaddr_in serv_addr;
   pthread_t tid;
-  char buffer[BUFFER_SIZE - 1];
+  char buffer[BUFFER_SIZE];
+
+  if (argc != 3)
+  {
+    fprintf(stderr, "Uso: %s <dirección IP server> <puerto>\n", argv[0]);
+    return -1;
+  }
+
+  char *ip_address = argv[1];
+  int port = atoi(argv[2]);
 
   if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0)
   {
-    printf("\nError : Creación del socket\n");
+    printf("Error : Creación del socket\n");
     return -1;
   }
 
   serv_addr.sin_family = AF_INET;
-  serv_addr.sin_port = htons(PORT);
+  serv_addr.sin_port = htons(port);
 
-  if (inet_pton(AF_INET, "127.0.0.1", &serv_addr.sin_addr) <= 0)
+  if (inet_pton(AF_INET, ip_address, &serv_addr.sin_addr) <= 0)
   {
-    printf("\nDirección inválida/ Dirección no soportada\n");
+    printf("Dirección inválida\n");
     return -1;
   }
 
   if (connect(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
   {
-    printf("\nConexión fallida\n");
+    printf("Conexión fallida\n");
     return -1;
   }
 
@@ -135,7 +147,7 @@ int main()
 
   while (1)
   {
-    fgets(buffer, BUFFER_SIZE - 1, stdin);
+    fgets(buffer, BUFFER_SIZE, stdin);
     buffer[strcspn(buffer, "\n")] = 0;
     if (strncmp(buffer, "FILE", 4) == 0)
     {
@@ -145,9 +157,7 @@ int main()
     }
     else
     {
-      char message[BUFFER_SIZE];
-      sprintf(message, "%s\n", buffer);
-      send(sock, message, strlen(message), 0);
+      send(sock, buffer, strlen(buffer), 0);
     }
   }
 
