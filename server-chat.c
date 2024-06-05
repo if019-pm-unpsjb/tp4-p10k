@@ -23,7 +23,6 @@ void send_message(char *message, int sender_socket)
   char msg[BUFFER_SIZE - sizeof(destinatario)];
   char remitente[50] = "";
 
-  // Obtener el nombre del remitente basado en el socket
   pthread_mutex_lock(&clients_mutex);
   for (int i = 0; i < client_count; i++)
   {
@@ -35,7 +34,6 @@ void send_message(char *message, int sender_socket)
   }
   pthread_mutex_unlock(&clients_mutex);
 
-  // Parsear el mensaje para obtener el destinatario y el mensaje real
   if (sscanf(message, "@%s %[^\n]", destinatario, msg) != 2)
   {
     char msgError[BUFFER_SIZE];
@@ -44,11 +42,9 @@ void send_message(char *message, int sender_socket)
     return;
   }
 
-  // Crear el mensaje a enviar en el formato @nombre_del_remitente: mensaje
   char formatted_message[BUFFER_SIZE];
   snprintf(formatted_message, sizeof(formatted_message), "%s:%s", remitente, msg);
 
-  // Enviar el mensaje al destinatario
   pthread_mutex_lock(&clients_mutex);
   for (int i = 0; i < client_count; i++)
   {
@@ -67,7 +63,6 @@ void handle_file_transfer(char *message, int sender_socket)
   int file_size;
   char remitente[50] = "";
 
-  // Obtener el nombre del remitente basado en el socket
   pthread_mutex_lock(&clients_mutex);
   for (int i = 0; i < client_count; i++)
   {
@@ -79,10 +74,8 @@ void handle_file_transfer(char *message, int sender_socket)
   }
   pthread_mutex_unlock(&clients_mutex);
 
-  // Parsear el mensaje para obtener el destinatario, nombre del archivo y tamaño del archivo
   sscanf(message, "FILE @%s %s %d", destinatario, file_name, &file_size);
 
-  // Enviar el mensaje de inicio de transferencia de archivo al destinatario
   char init_message[BUFFER_SIZE];
   snprintf(init_message, sizeof(init_message), "FILE %s %s %d", remitente, file_name, file_size);
 
@@ -93,7 +86,6 @@ void handle_file_transfer(char *message, int sender_socket)
     {
       send(clients[i].socket, init_message, strlen(init_message), 0);
 
-      // Esperar y reenviar los datos del archivo
       char buffer[BUFFER_SIZE];
       int bytes_read;
       while (file_size > 0 && (bytes_read = recv(sender_socket, buffer, BUFFER_SIZE, 0)) > 0)
@@ -107,6 +99,20 @@ void handle_file_transfer(char *message, int sender_socket)
   pthread_mutex_unlock(&clients_mutex);
 }
 
+void list_clients(int client_socket)
+{
+  pthread_mutex_lock(&clients_mutex);
+  char list_message[BUFFER_SIZE];
+  snprintf(list_message, sizeof(list_message), "Usuarios conectados (%d):\n", client_count);
+  for (int i = 0; i < client_count; i++)
+  {
+    strcat(list_message, clients[i].username);
+    strcat(list_message, "\n");
+  }
+  pthread_mutex_unlock(&clients_mutex);
+  send(client_socket, list_message, strlen(list_message), 0);
+}
+
 void *handle_client(void *arg)
 {
   int client_socket = *((int *)arg);
@@ -114,11 +120,9 @@ void *handle_client(void *arg)
   char username[50];
   int read_size;
 
-  // Authentication
   if ((read_size = recv(client_socket, buffer, BUFFER_SIZE, 0)) > 0)
   {
     buffer[read_size] = '\0';
-
     strcpy(username, buffer);
     username[strcspn(username, "\n")] = 0;
 
@@ -128,8 +132,10 @@ void *handle_client(void *arg)
     client_count++;
     pthread_mutex_unlock(&clients_mutex);
 
+    printf("Usuario conectado: %s\n", username);
+
     char auth_message[BUFFER_SIZE];
-    sprintf(auth_message, "OK @%s\nPara enviar un mensaje: '@nombre_usuario_destinatorio mensaje'\nPara enviar un archivo: 'FILE @nombre_usuario_destinatorio nombre_archivo'", username);
+    sprintf(auth_message, "OK @%s\nPara enviar un mensaje: '@nombre_usuario_destinatorio mensaje'\nPara enviar un archivo: 'FILE @nombre_usuario_destinatorio nombre_archivo'\nPara ver los usuarios conectados: 'LIST'", username);
     send(client_socket, auth_message, strlen(auth_message), 0);
   }
 
@@ -139,6 +145,10 @@ void *handle_client(void *arg)
     if (strncmp(buffer, "FILE", 4) == 0)
     {
       handle_file_transfer(buffer, client_socket);
+    }
+    else if (strcmp(buffer, "LIST") == 0)
+    {
+      list_clients(client_socket);
     }
     else
     {
@@ -161,6 +171,7 @@ void *handle_client(void *arg)
       break;
     }
   }
+  printf("Usuario desconectado: %s\n", username);
   pthread_mutex_unlock(&clients_mutex);
 
   pthread_exit(NULL);
