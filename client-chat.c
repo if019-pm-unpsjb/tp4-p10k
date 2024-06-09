@@ -13,6 +13,9 @@
 
 int sock = 0;
 char username[50];
+pthread_mutex_t ack_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t ack_cond = PTHREAD_COND_INITIALIZER;
+int ack_received = 0;
 
 void receive_file(char *remitente, char *file_name, int file_size)
 {
@@ -35,6 +38,9 @@ void receive_file(char *remitente, char *file_name, int file_size)
   {
     fwrite(buffer, 1, bytes_received, file);
     total_bytes_received += bytes_received;
+
+    // Enviar ACK por cada bloque recibido
+    send(sock, "ACK", 3, 0);
   }
 
   fclose(file);
@@ -47,6 +53,7 @@ void receive_file(char *remitente, char *file_name, int file_size)
     printf("Error al recibir el archivo %s.\n", file_name);
   }
 }
+
 void *receive_messages(void *arg)
 {
   char buffer[BUFFER_SIZE];
@@ -60,6 +67,13 @@ void *receive_messages(void *arg)
       int file_size;
       sscanf(buffer, "FILE %s %s %d", remitente, file_name, &file_size);
       receive_file(remitente, file_name, file_size);
+    }
+    else if (strncmp(buffer, "ACK", 3) == 0)
+    {
+      pthread_mutex_lock(&ack_mutex);
+      ack_received = 1;
+      pthread_cond_signal(&ack_cond);
+      pthread_mutex_unlock(&ack_mutex);
     }
     else
     {
@@ -94,6 +108,14 @@ void send_file(char *destinatario, char *file_name)
     if (bytes_read > 0)
     {
       send(sock, buffer, bytes_read, 0);
+      // Esperar a recibir el ACK antes de continuar
+      pthread_mutex_lock(&ack_mutex);
+      while (!ack_received)
+      {
+        pthread_cond_wait(&ack_cond, &ack_mutex);
+      }
+      ack_received = 0;
+      pthread_mutex_unlock(&ack_mutex);
     }
   }
   fclose(file);

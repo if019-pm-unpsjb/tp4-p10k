@@ -11,6 +11,9 @@ typedef struct
 {
   int socket;
   char username[50];
+  int ack_received;
+  pthread_cond_t ack_cond;
+  pthread_mutex_t ack_mutex;
 } Client;
 
 Client clients[10];
@@ -79,24 +82,49 @@ void handle_file_transfer(char *message, int sender_socket)
   char init_message[BUFFER_SIZE];
   snprintf(init_message, sizeof(init_message), "FILE %s %s %d", remitente, file_name, file_size);
 
+  int destinatario_socket = -1;
+
   pthread_mutex_lock(&clients_mutex);
+  Client *dest_client = NULL;
   for (int i = 0; i < client_count; i++)
   {
     if (strcmp(clients[i].username, destinatario) == 0)
     {
-      send(clients[i].socket, init_message, strlen(init_message), 0);
-
-      char buffer[BUFFER_SIZE];
-      int bytes_read;
-      while (file_size > 0 && (bytes_read = recv(sender_socket, buffer, BUFFER_SIZE, 0)) > 0)
-      {
-        send(clients[i].socket, buffer, bytes_read, 0);
-        file_size -= bytes_read;
-      }
+      destinatario_socket = clients[i].socket;
+      dest_client = &clients[i];
+      send(destinatario_socket, init_message, strlen(init_message), 0);
       break;
     }
   }
   pthread_mutex_unlock(&clients_mutex);
+
+  if (destinatario_socket == -1)
+  {
+    printf("Destinatario no encontrado\n");
+    return;
+  }
+
+  char buffer[BUFFER_SIZE];
+  int bytes_read;
+  while (file_size > 0 && (bytes_read = recv(sender_socket, buffer, BUFFER_SIZE, 0)) > 0)
+  {
+    send(destinatario_socket, buffer, bytes_read, 0);
+    file_size -= bytes_read;
+
+    // Esperar el ACK del destinatario
+    pthread_mutex_lock(&dest_client->ack_mutex);
+    while (!dest_client->ack_received)
+    {
+      pthread_cond_wait(&dest_client->ack_cond, &dest_client->ack_mutex);
+    }
+    dest_client->ack_received = 0; // Resetear la variable de control
+    pthread_mutex_unlock(&dest_client->ack_mutex);
+
+    // Enviar el ACK al remitente
+    char ack[BUFFER_SIZE];
+    snprintf(ack, sizeof(ack), "ACK");
+    send(sender_socket, ack, strlen(ack), 0);
+  }
 }
 
 void list_clients(int client_socket)
@@ -129,6 +157,9 @@ void *handle_client(void *arg)
     pthread_mutex_lock(&clients_mutex);
     clients[client_count].socket = client_socket;
     strcpy(clients[client_count].username, username);
+    clients[client_count].ack_received = 0;
+    pthread_cond_init(&clients[client_count].ack_cond, NULL);
+    pthread_mutex_init(&clients[client_count].ack_mutex, NULL);
     client_count++;
     pthread_mutex_unlock(&clients_mutex);
 
@@ -149,6 +180,23 @@ void *handle_client(void *arg)
     else if (strcmp(buffer, "LIST") == 0)
     {
       list_clients(client_socket);
+    }
+    else if (strncmp(buffer, "ACK", 3) == 0)
+    {
+      // Manejar ACK
+      pthread_mutex_lock(&clients_mutex);
+      for (int i = 0; i < client_count; i++)
+      {
+        if (clients[i].socket == client_socket)
+        {
+          pthread_mutex_lock(&clients[i].ack_mutex);
+          clients[i].ack_received = 1;
+          pthread_cond_signal(&clients[i].ack_cond);
+          pthread_mutex_unlock(&clients[i].ack_mutex);
+          break;
+        }
+      }
+      pthread_mutex_unlock(&clients_mutex);
     }
     else
     {
